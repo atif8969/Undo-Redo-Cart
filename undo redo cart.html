@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Challenge 4 — Undo / Redo Cart</title>
+<style>
+  :root{
+    --bg: #14171f;
+    --panel: #1d2230;
+    --panel-2: #242a3a;
+    --line: #323a4f;
+    --amber: #e8a33d;
+    --amber-dim: #7a5a26;
+    --red: #c1554b;
+    --green: #5fa87a;
+    --text: #eef0f4;
+    --muted: #8a90a3;
+    --mono: ui-monospace, SFMono-Regular, "IBM Plex Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); line-height:1.45;
+  }
+  header{
+    padding: 28px clamp(16px,4vw,48px) 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1{
+    margin:0 0 6px; font-size: clamp(22px,3vw,30px); letter-spacing:-0.01em;
+    font-weight:700;
+  }
+  header p{ margin:0; color:var(--muted); max-width:60ch; font-size:14.5px; }
+
+  main{
+    display:grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 20px;
+    padding: 24px clamp(16px,4vw,48px) 48px;
+    align-items:start;
+  }
+  @media (max-width: 860px){
+    main{ grid-template-columns: 1fr; }
+  }
+
+  section.panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:18px;
+  }
+  .panel h2{
+    margin:0 0 14px; font-size:15px; font-weight:700;
+    color:var(--muted); text-transform:none;
+  }
+
+  /* --- Catalog --- */
+  .catalog-grid{
+    display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr));
+    gap:12px;
+  }
+  .product-card{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:8px;
+    padding:12px; display:flex; flex-direction:column; gap:8px;
+  }
+  .product-card .name{ font-size:13.5px; font-weight:600; }
+  .product-card .price{ font-family:var(--mono); font-size:13px; color:var(--amber); }
+  .btn{
+    border:none; border-radius:6px; padding:8px 10px; font-size:13px; font-weight:600;
+    cursor:pointer; font-family:var(--sans); transition: transform .08s ease, opacity .12s ease;
+  }
+  .btn:active{ transform: scale(0.96); }
+  .btn:disabled{ cursor:default; opacity:.45; transform:none; }
+  .btn-add{ background:var(--amber); color:#1b140a; }
+  .btn-add:disabled{ background:var(--panel-2); border:1px dashed var(--line); color:var(--muted); }
+  .btn-ghost{
+    background:transparent; border:1px solid var(--line); color:var(--text);
+  }
+  .btn-remove{ background:transparent; color:var(--red); border:1px solid var(--red); }
+  .btn-remove:disabled{ color:var(--muted); border-color:var(--line); }
+
+  /* --- Cart --- */
+  .cart-meta{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-family:var(--mono); font-size:13px; color:var(--muted);
+    margin-bottom:12px; padding-bottom:12px; border-bottom:1px dashed var(--line);
+  }
+  .cart-meta strong{ color:var(--text); font-size:16px; }
+  .cart-row{
+    display:grid; grid-template-columns: 1fr auto auto; gap:10px;
+    align-items:center; padding:10px 0; border-bottom:1px solid var(--line);
+  }
+  .cart-row:last-of-type{ border-bottom:none; }
+  .cart-row .item-name{ font-size:13.5px; font-weight:600; }
+  .cart-row .item-price{ font-family:var(--mono); font-size:12px; color:var(--muted); }
+  .qty-stepper{
+    display:flex; align-items:center; gap:6px; background:var(--panel-2);
+    border:1px solid var(--line); border-radius:6px; padding:2px;
+  }
+  .qty-stepper button{
+    width:24px; height:24px; border:none; border-radius:4px; background:transparent;
+    color:var(--text); font-size:14px; cursor:pointer; font-family:var(--mono);
+  }
+  .qty-stepper button:disabled{ color:var(--muted); cursor:default; }
+  .qty-stepper span{ min-width:18px; text-align:center; font-family:var(--mono); font-size:13px; }
+  .empty-cart{ color:var(--muted); font-size:13.5px; padding:14px 0; }
+
+  /* --- Undo/Redo controls --- */
+  .controls{ display:flex; gap:10px; margin:16px 0; }
+  .controls .btn{ flex:1; padding:10px; font-size:13.5px; }
+  .btn-undo{ background:var(--panel-2); border:1px solid var(--amber-dim); color:var(--amber); }
+  .btn-undo:disabled{ border-color:var(--line); color:var(--muted); }
+  .btn-redo{ background:var(--panel-2); border:1px solid var(--line); color:var(--text); }
+  .btn-redo:disabled{ color:var(--muted); }
+
+  /* --- History log --- */
+  .history-list{
+    list-style:none; margin:0; padding:0; font-family:var(--mono); font-size:12.5px;
+    max-height:220px; overflow-y:auto;
+  }
+  .history-list li{
+    display:flex; gap:8px; padding:5px 0; color:var(--text); border-bottom:1px dashed var(--line);
+  }
+  .history-list li:last-child{ border-bottom:none; }
+  .history-list li.undone{ color:var(--muted); text-decoration:line-through; }
+  .history-list .mark{ color:var(--green); width:14px; flex:none; }
+  .history-list li.undone .mark{ color:var(--muted); }
+  .history-empty{ color:var(--muted); font-size:12.5px; }
+
+  footer{
+    padding: 0 clamp(16px,4vw,48px) 40px; color:var(--muted); font-size:12.5px;
+  }
+  footer code{ background:var(--panel-2); padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Undo / Redo Cart</h1>
+  <p>Add products, change quantities, remove items — every action can be undone and redone. The Undo and Redo buttons disable themselves automatically when there's nothing left to reverse or replay.</p>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Products</h2>
+    <div class="catalog-grid" id="catalog"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Cart</h2>
+    <div class="cart-meta">
+      <span id="itemCount">0 items</span>
+      <strong id="cartTotal">₹0</strong>
+    </div>
+    <div id="cartRows"></div>
+
+    <div class="controls">
+      <button class="btn btn-undo" id="undoBtn">↶ Undo</button>
+      <button class="btn btn-redo" id="redoBtn">↷ Redo</button>
+    </div>
+
+    <h2>Operation history</h2>
+    <ul class="history-list" id="historyList"></ul>
+  </section>
+</main>
+
+<footer>
+  Replace the <code>PRODUCTS</code> array near the top of the <code>&lt;script&gt;</code> with the real
+  catalogue from <code>data.js</code> before you commit — keep the same shape
+  (<code>id</code>, <code>name</code>, <code>price</code>) or adjust the render functions to match.
+</footer>
+
+<script>
+/*
+  ============================================================
+  UNDO / REDO CART — COMMAND PATTERN WITH TWO STACKS
+  ============================================================
+  Every user action (add, remove, increase, decrease) is turned
+  into a "command" object with two functions:
+    - apply()  : performs the action on the cart
+    - revert() : exactly undoes what apply() did
+
+  We keep two stacks:
+    - undoStack : commands that are currently applied, most recent on top
+    - redoStack : commands that were just undone, most recent on top
+
+  Doing a NEW action always clears redoStack — once you branch off
+  in a new direction, the old "future" is gone (this is how undo/redo
+  works in every text editor too).
+
+  Undo  = pop from undoStack, call .revert(), push onto redoStack
+  Redo  = pop from redoStack, call .apply(),  push onto undoStack
+
+  Because we always undo the MOST RECENTLY applied command first,
+  reverting is always safe: nothing that happened "after" it is
+  still active when we revert it.
+*/
+
+// --- 1. Sample catalogue. Swap this for the real data.js contents. ---
+const PRODUCTS = [
+  { id: 'p1', name: 'Wireless Mouse',              price: 799   },
+  { id: 'p2', name: 'Mechanical Keyboard',          price: 3499  },
+  { id: 'p3', name: 'USB-C Hub',                    price: 1299  },
+  { id: 'p4', name: 'Laptop Stand',                 price: 1599  },
+  { id: 'p5', name: 'Noise Cancelling Headphones',  price: 5999  },
+  { id: 'p6', name: '27" Monitor',                  price: 14999 },
+  { id: 'p7', name: 'Webcam 1080p',                 price: 2199  },
+  { id: 'p8', name: 'Desk Lamp',                    price: 899   },
+];
+
+// --- 2. State ---
+let cart = [];         // array of { id, name, price, qty }
+let undoStack = [];    // applied commands
+let redoStack = [];    // undone commands
+
+function findCartItem(id) {
+  return cart.find(i => i.id === id);
+}
+function findCartIndex(id) {
+  return cart.findIndex(i => i.id === id);
+}
+
+// --- 3. Command factories ---
+function cmdAddProduct(product) {
+  return {
+    label: `Added ${product.name}`,
+    apply()  { cart.push({ id: product.id, name: product.name, price: product.price, qty: 1 }); },
+    revert() { const i = findCartIndex(product.id); if (i > -1) cart.splice(i, 1); },
+  };
+}
+
+function cmdRemoveProduct(id) {
+  const index = findCartIndex(id);
+  const snapshot = { ...cart[index] }; // remember exact position + qty to restore
+  return {
+    label: `Removed ${snapshot.name}`,
+    apply()  { const i = findCartIndex(id); if (i > -1) cart.splice(i, 1); },
+    revert() { cart.splice(index, 0, { ...snapshot }); },
+  };
+}
+
+function cmdIncreaseQty(id) {
+  const name = findCartItem(id).name;
+  return {
+    label: `Increased quantity of ${name}`,
+    apply()  { findCartItem(id).qty += 1; },
+    revert() { findCartItem(id).qty -= 1; },
+  };
+}
+
+function cmdDecreaseQty(id) {
+  const name = findCartItem(id).name;
+  return {
+    label: `Decreased quantity of ${name}`,
+    apply()  { findCartItem(id).qty -= 1; },
+    revert() { findCartItem(id).qty += 1; },
+  };
+}
+
+// --- 4. The only place that mutates the stacks ---
+function doAction(command) {
+  command.apply();
+  undoStack.push(command);
+  redoStack = []; // new action erases the "redo future"
+  render();
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  const command = undoStack.pop();
+  command.revert();
+  redoStack.push(command);
+  render();
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+  const command = redoStack.pop();
+  command.apply();
+  undoStack.push(command);
+  render();
+}
+
+// --- 5. Rendering ---
+const catalogEl = document.getElementById('catalog');
+const cartRowsEl = document.getElementById('cartRows');
+const itemCountEl = document.getElementById('itemCount');
+const cartTotalEl = document.getElementById('cartTotal');
+const historyListEl = document.getElementById('historyList');
+const undoBtn = document.getElementById('undoBtn');
+const redoBtn = document.getElementById('redoBtn');
+
+function money(n) {
+  return '₹' + n.toLocaleString('en-IN');
+}
+
+function render() {
+  // Catalog
+  catalogEl.innerHTML = '';
+  PRODUCTS.forEach(product => {
+    const inCart = !!findCartItem(product.id);
+    const card = document.createElement('div');
+    card.className = 'product-card';
+    card.innerHTML = `
+      <span class="name">${product.name}</span>
+      <span class="price">${money(product.price)}</span>
+      <button class="btn btn-add" ${inCart ? 'disabled' : ''}>
+        ${inCart ? 'In cart' : 'Add to cart'}
+      </button>
+    `;
+    if (!inCart) {
+      card.querySelector('button').onclick = () => doAction(cmdAddProduct(product));
+    }
+    catalogEl.appendChild(card);
+  });
+
+  // Cart rows
+  cartRowsEl.innerHTML = '';
+  if (cart.length === 0) {
+    cartRowsEl.innerHTML = `<p class="empty-cart">Your cart is empty — add a product to get started.</p>`;
+  } else {
+    cart.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'cart-row';
+      row.innerHTML = `
+        <div>
+          <div class="item-name">${item.name}</div>
+          <div class="item-price">${money(item.price)} · ${money(item.price * item.qty)} total</div>
+        </div>
+        <div class="qty-stepper">
+          <button class="dec" ${item.qty <= 1 ? 'disabled' : ''}>−</button>
+          <span>${item.qty}</span>
+          <button class="inc">+</button>
+        </div>
+        <button class="btn btn-remove">Remove</button>
+      `;
+      row.querySelector('.inc').onclick = () => doAction(cmdIncreaseQty(item.id));
+      row.querySelector('.dec').onclick = () => { if (item.qty > 1) doAction(cmdDecreaseQty(item.id)); };
+      row.querySelector('.btn-remove').onclick = () => doAction(cmdRemoveProduct(item.id));
+      cartRowsEl.appendChild(row);
+    });
+  }
+
+  // Totals
+  const totalItems = cart.reduce((sum, i) => sum + i.qty, 0);
+  const totalPrice = cart.reduce((sum, i) => sum + i.qty * i.price, 0);
+  itemCountEl.textContent = `${totalItems} item${totalItems === 1 ? '' : 's'}`;
+  cartTotalEl.textContent = money(totalPrice);
+
+  // Undo/redo button states
+  undoBtn.disabled = undoStack.length === 0;
+  redoBtn.disabled = redoStack.length === 0;
+
+  // History: undoStack (chronological) + reversed redoStack (still chronological)
+  const chronological = [
+    ...undoStack.map(c => ({ label: c.label, done: true })),
+    ...[...redoStack].reverse().map(c => ({ label: c.label, done: false })),
+  ];
+  historyListEl.innerHTML = '';
+  if (chronological.length === 0) {
+    historyListEl.innerHTML = `<li class="history-empty">No actions yet.</li>`;
+  } else {
+    chronological.forEach(entry => {
+      const li = document.createElement('li');
+      li.className = entry.done ? '' : 'undone';
+      li.innerHTML = `<span class="mark">${entry.done ? '✓' : '↺'}</span><span>${entry.label}</span>`;
+      historyListEl.appendChild(li);
+    });
+  }
+}
+
+undoBtn.onclick = undo;
+redoBtn.onclick = redo;
+
+render();
+</script>
+</body>
+</html>
